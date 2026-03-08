@@ -1,15 +1,32 @@
 ﻿# -*- coding: utf-8 -*-
 from __future__ import annotations
-from typing import Any, Dict, List, Optional
-import requests
 
-from src.memory_interface import BaseMemorySystem, Evidence
-from src.config import get_config
+import sys
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+import requests
 from scipy.spatial import distance
-from raptor import RetrievalAugmentation, RetrievalAugmentationConfig
-from raptor.EmbeddingModels import BaseEmbeddingModel
-from raptor.SummarizationModels import BaseSummarizationModel
-from raptor.QAModels import BaseQAModel
+
+from src.config import get_config
+from src.memory_interface import BaseMemorySystem, Evidence
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+THIRD_PARTY_RAPTOR = PROJECT_ROOT / "third_party" / "raptor"
+if THIRD_PARTY_RAPTOR.exists() and str(THIRD_PARTY_RAPTOR) not in sys.path:
+    sys.path.insert(0, str(THIRD_PARTY_RAPTOR))
+
+try:
+    from raptor import RetrievalAugmentation, RetrievalAugmentationConfig
+    from raptor.EmbeddingModels import BaseEmbeddingModel
+    from raptor.SummarizationModels import BaseSummarizationModel
+    from raptor.QAModels import BaseQAModel
+except Exception as e:
+    raise ImportError(
+        "未找到 RAPTOR 依赖。请先安装官方 RAPTOR，并确保它位于 third_party/raptor，"
+        "或已加入 PYTHONPATH。"
+    ) from e
+
 class _NoQAModel(BaseQAModel):
     def answer_question(self, *args, **kwargs):
         return ""
