@@ -4,8 +4,6 @@
 
 > 本仓库是从 `memoRaxis` 中拆分出的 RAPTOR 单后端实验仓库，目标是在保留统一 R1 / R2 / R3 推理适配器的前提下，以 RAPTOR 作为唯一记忆后端，在 MemoryAgentBench 上完成 ingest、infer、evaluate、analyze 的完整实验流程。
 
-## 先看这里：最关键的信息（首次使用建议在这一页内完成判断）
-
 ### 这个仓库是做什么的
 
 `memoRaxis_Raptor` 的定位不是通用型 RAG 产品，而是一个**研究型、可复现实验仓库**。它聚焦两件事：
@@ -34,10 +32,6 @@
 
 ---
 
-### 最推荐的第一条命令
-
-如果只是第一次验证整条链路是否能跑，推荐直接执行：
-
 ```bash
 python run_all_tasks.py --acc_instance_idx 0 --conflict_instance_idx 0 --long_instance_idx 0 --ttl_instance_idx 0 --acc_limit 3 --conflict_limit 3 --long_limit 1 --ttl_limit 3
 ```
@@ -48,8 +42,6 @@ python run_all_tasks.py --acc_instance_idx 0 --conflict_instance_idx 0 --long_in
 - `Accurate_Retrieval / Conflict_Resolution / Test_Time_Learning` 各只回答前 3 个问题
 - `Long_Range_Understanding` 只跑前 1 个问题
 - 对首次验证更友好，能快速判断环境、路径、接口和输出链条是否正常
-
-如果这条命令稳定跑通，再考虑扩大规模。
 
 ---
 
