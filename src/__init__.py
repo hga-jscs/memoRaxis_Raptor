@@ -7,6 +7,11 @@ from .memory_interface import Evidence, BaseMemorySystem, MockMemory
 from .llm_interface import BaseLLMClient, MockLLMClient, OpenAIClient
 from .adaptors import SingleTurnAdaptor, IterativeAdaptor, PlanAndActAdaptor
 
+try:
+    from .simple_memory import SimpleRAGMemory
+except Exception:
+    SimpleRAGMemory = None
+
 __all__ = [
     "get_logger",
     "Config",
@@ -14,7 +19,6 @@ __all__ = [
     "Evidence",
     "BaseMemorySystem",
     "MockMemory",
-    "SimpleRAGMemory",
     "BaseLLMClient",
     "MockLLMClient",
     "OpenAIClient",
@@ -22,3 +26,6 @@ __all__ = [
     "IterativeAdaptor",
     "PlanAndActAdaptor",
 ]
+
+if SimpleRAGMemory is not None:
+    __all__.append("SimpleRAGMemory")
