@@ -117,7 +117,7 @@ def main():
     parser.add_argument("--adaptor", nargs="+", default=["R1", "R2"], help="R1, R2, R3")
     parser.add_argument("--limit", type=int, default=-1, help="Limit questions per instance")
     parser.add_argument("--tree_dir", type=str, default="out/raptor_trees", help="Directory containing RAPTOR pkl trees")
-    parser.add_argument("--output_suffix", type=str, default="raptor", help="Suffix for output filename")
+    parser.add_argument("--output_suffix", type=str, default="", help="Suffix for output filename")
     args = parser.parse_args()
 
     indices = parse_instance_indices(args.instance_idx)
