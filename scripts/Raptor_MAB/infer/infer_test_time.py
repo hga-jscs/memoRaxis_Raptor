@@ -14,7 +14,14 @@ from src.adaptors import run_r1_single_turn, run_r2_iterative, run_r3_plan_act
 from src.raptor_memory import RaptorTreeMemory
 
 logger = get_logger()
-
+def normalize_adaptors(adaptors: list[str]) -> list[str]:
+    if "all" in adaptors:
+        return ["R1", "R2", "R3"]
+    ordered = []
+    for name in adaptors:
+        if name not in ordered:
+            ordered.append(name)
+    return ordered
 def evaluate_instance(instance_idx: int, adaptors: list, limit: int = -1, output_suffix: str = "", tree_dir: str = "out/raptor_trees"):
     logger.info(f"=== Evaluating Test_Time_Learning Instance {instance_idx} ===")
     
@@ -146,8 +153,9 @@ def main():
     args = parser.parse_args()
 
     indices = parse_instance_indices(args.instance_idx)
+    adaptors = normalize_adaptors(args.adaptor)
     for idx in indices:
-        evaluate_instance(idx, args.adaptor, args.limit, args.output_suffix, args.tree_dir)
+        evaluate_instance(idx, adaptors, args.limit, args.output_suffix, args.tree_dir)
 
 if __name__ == "__main__":
     main()

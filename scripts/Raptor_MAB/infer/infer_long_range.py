@@ -13,7 +13,14 @@ from src.adaptors import run_r1_single_turn, run_r2_iterative, run_r3_plan_act
 from src.raptor_memory import RaptorTreeMemory
 
 logger = get_logger()
-
+def normalize_adaptors(adaptors: list[str]) -> list[str]:
+    if "all" in adaptors:
+        return ["R1", "R2", "R3"]
+    ordered = []
+    for name in adaptors:
+        if name not in ordered:
+            ordered.append(name)
+    return ordered
 
 def evaluate_instance(
     instance_idx: int,
