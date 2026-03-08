@@ -118,8 +118,9 @@ def main():
     args = parser.parse_args()
 
     indices = parse_instance_indices(args.instance_idx)
+    adaptors = normalize_adaptors(args.adaptor)
     for idx in indices:
-        evaluate_instance(idx, args.adaptor, args.limit, args.output_suffix, args.tree_dir)
+        evaluate_instance(idx, adaptors, args.limit, args.output_suffix, args.tree_dir)
 
 
 if __name__ == "__main__":
