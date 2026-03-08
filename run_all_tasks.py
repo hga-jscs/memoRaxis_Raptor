@@ -27,6 +27,13 @@ import argparse
 import subprocess
 import sys
 from pathlib import Path
+
+config_path = Path("config/config.yaml")
+if not config_path.exists():
+    raise FileNotFoundError(
+        "缺少 config/config.yaml。请先由 config/config.example.yaml 复制生成，"
+        "再填写 API Key 和 Base URL。"
+    )
 from typing import List
 
 
