@@ -78,7 +78,7 @@ class SingleTurnAdaptor(BaseAdaptor):
     流程: run(task) → retrieve(task) → synthesize → answer
     """
 
-    def run(self, task: str, top_k: int = 5) -> AdaptorResult:
+    def run(self, task: str, top_k: int = 5, max_tokens: int = 3500) -> AdaptorResult:
         """执行单轮推理
 
         Args:
@@ -91,14 +91,18 @@ class SingleTurnAdaptor(BaseAdaptor):
         self._logger.info("[SingleTurn] 开始处理任务: %s", task)
 
         # 步骤 1: 检索
-        evidences = self._memory.retrieve(task, top_k=top_k)
+        evidences = self._memory.retrieve(task, top_k=top_k, max_tokens=max_tokens, stage="infer.retrieve.r1")
         self._log_evidences(evidences, "[SingleTurn]")
 
         # 步骤 2: 综合生成
         prompt = self._config.get_prompt("single_turn", "synthesis").format(
             task=task, evidence_list=self._format_evidence_list(evidences)
         )
-        answer = self._llm.generate(prompt)
+        answer = self._llm.generate(
+            prompt,
+            stage="infer.synthesis.r1",
+            token_bucket="infer_synthesis",
+        )
 
         # 获取 Token 统计（如果 LLM 客户端支持）
         token_consumption = getattr(self._llm, "total_tokens", 0)
@@ -133,7 +137,7 @@ class IterativeAdaptor(BaseAdaptor):
         super().__init__(llm_client, memory_system)
         self._max_iterations = max_iterations
 
-    def run(self, task: str, top_k: int = 3) -> AdaptorResult:
+    def run(self, task: str, top_k: int = 3, max_tokens: int = 3500) -> AdaptorResult:
         """执行迭代推理
 
         Args:
@@ -164,7 +168,11 @@ class IterativeAdaptor(BaseAdaptor):
             )
 
             # 获取决策
-            decision = self._llm.generate_json(decision_prompt)
+            decision = self._llm.generate_json(
+                decision_prompt,
+                stage="infer.decision.r2",
+                token_bucket="infer_decision",
+            )
             action = decision.get("action", "ANSWER")
 
             if action == "ANSWER":
@@ -175,7 +183,12 @@ class IterativeAdaptor(BaseAdaptor):
             query = decision.get("query", task)
             previous_queries.append(query)
             self._logger.info("[Iterative] 迭代 %d: 决策=SEARCH, query='%s'", iteration + 1, query)
-            new_evidences = self._memory.retrieve(query, top_k=top_k)
+            new_evidences = self._memory.retrieve(
+                query,
+                top_k=top_k,
+                max_tokens=max_tokens,
+                stage="infer.retrieve.r2",
+            )
             all_evidences.extend(new_evidences)
             self._log_evidences(new_evidences, f"[Iterative] 迭代 {iteration + 1}")
 
@@ -183,7 +196,11 @@ class IterativeAdaptor(BaseAdaptor):
         synthesis_prompt = self._config.get_prompt("iterative", "synthesis").format(
             task=task, evidence_list=self._format_evidence_list(all_evidences)
         )
-        answer = self._llm.generate(synthesis_prompt)
+        answer = self._llm.generate(
+            synthesis_prompt,
+            stage="infer.synthesis.r2",
+            token_bucket="infer_synthesis",
+        )
 
         token_consumption = getattr(self._llm, "total_tokens", 0)
 
@@ -223,7 +240,7 @@ class PlanAndActAdaptor(BaseAdaptor):
         self._max_additions = max_additions
         self._check_interval = check_interval
 
-    def run(self, task: str, top_k: int = 3) -> AdaptorResult:
+    def run(self, task: str, top_k: int = 3, max_tokens: int = 3500) -> AdaptorResult:
         """执行两阶段动态规划推理（带迭代检查）
 
         Args:
@@ -250,7 +267,12 @@ class PlanAndActAdaptor(BaseAdaptor):
         self._logger.info("[PlanAndAct] 探索 query: '%s'", discovery_query)
 
         # 执行探索检索
-        discovery_evidences = self._memory.retrieve(discovery_query, top_k=top_k)
+        discovery_evidences = self._memory.retrieve(
+            discovery_query,
+            top_k=top_k,
+            max_tokens=max_tokens,
+            stage="infer.retrieve.r3",
+        )
         all_evidences.extend(discovery_evidences)
         steps += 1
         self._log_evidences(discovery_evidences, "[PlanAndAct] Discovery")
@@ -281,7 +303,12 @@ class PlanAndActAdaptor(BaseAdaptor):
             )
 
             # 执行检索
-            evidences = self._memory.retrieve(query, top_k=top_k)
+            evidences = self._memory.retrieve(
+                query,
+                top_k=top_k,
+                max_tokens=max_tokens,
+                stage="infer.retrieve.r3",
+            )
             all_evidences.extend(evidences)
             self._log_evidences(evidences, f"[PlanAndAct] 步骤 {step_index + 1}")
 
@@ -325,7 +352,11 @@ class PlanAndActAdaptor(BaseAdaptor):
             plan_summary=plan_summary,
             evidence_list=self._format_evidence_list(all_evidences),
         )
-        answer = self._llm.generate(synthesis_prompt)
+        answer = self._llm.generate(
+            synthesis_prompt,
+            stage="infer.synthesis.r3",
+            token_bucket="infer_synthesis",
+        )
 
         token_consumption = getattr(self._llm, "total_tokens", 0)
 
@@ -344,7 +375,11 @@ class PlanAndActAdaptor(BaseAdaptor):
     def _generate_discovery_step(self, task: str) -> Dict[str, Any]:
         """Phase 1: 生成探索性步骤"""
         prompt = self._config.get_prompt("plan_and_act", "discovery").format(task=task)
-        result = self._llm.generate_json(prompt)
+        result = self._llm.generate_json(
+            prompt,
+            stage="infer.planning.discovery.r3",
+            token_bucket="infer_planning",
+        )
         return result.get("step", {"description": task})
 
     def _generate_expansion_plan(
@@ -355,7 +390,11 @@ class PlanAndActAdaptor(BaseAdaptor):
             task=task,
             discovery_evidence=self._format_evidence_list(discovery_evidences),
         )
-        result = self._llm.generate_json(prompt)
+        result = self._llm.generate_json(
+            prompt,
+            stage="infer.planning.expansion.r3",
+            token_bucket="infer_planning",
+        )
         plan = result.get("plan", [])
 
         # 限制步骤数量
@@ -378,7 +417,11 @@ class PlanAndActAdaptor(BaseAdaptor):
             step_description=step_description,
             context=self._format_evidence_list(context_evidences),
         )
-        result = self._llm.generate_json(prompt)
+        result = self._llm.generate_json(
+            prompt,
+            stage="infer.planning.query_generation.r3",
+            token_bucket="infer_planning",
+        )
         return result.get("query", step_description)
 
     def _check_plan_progress(
@@ -413,7 +456,11 @@ class PlanAndActAdaptor(BaseAdaptor):
             evidence_list=self._format_evidence_list(all_evidences),
             remaining_steps=remaining_str,
         )
-        result = self._llm.generate_json(prompt)
+        result = self._llm.generate_json(
+            prompt,
+            stage="infer.decision.plan_check.r3",
+            token_bucket="infer_decision",
+        )
         return result
 
     def _log_plan(self, plan: List[Dict[str, Any]], context: str = "") -> None:

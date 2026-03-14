@@ -1,6 +1,7 @@
 import argparse
 import json
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import List
 
@@ -8,30 +9,55 @@ from typing import List
 PROJECT_ROOT = Path(__file__).resolve().parents[3]  # D:\memoRaxis
 sys.path.append(str(PROJECT_ROOT))
 
-from src.logger import get_logger
-from src.config import get_config
+from src.adaptors import AdaptorResult, IterativeAdaptor, PlanAndActAdaptor, SingleTurnAdaptor
 from src.benchmark_utils import load_benchmark_data, parse_instance_indices
+from src.config import get_config
 from src.llm_interface import OpenAIClient
-from src.adaptors import SingleTurnAdaptor, IterativeAdaptor, PlanAndActAdaptor, AdaptorResult
+from src.logger import bind_trace, get_event_file_path, get_logger
 from src.raptor_memory import RaptorTreeMemory
 
 logger = get_logger()
 
 
-def evaluate_adaptor(name: str, adaptor, questions: list, limit: int) -> list:
+def _make_run_id(task_name: str, instance_idx: int, adaptor: str, question_idx: int) -> str:
+    """构造全局唯一 run_id，便于后续按样本/阶段聚合 token。"""
+    ts = datetime.now().strftime("%Y%m%dT%H%M%S")
+    return f"{task_name}_inst{instance_idx}_{adaptor}_q{question_idx}_{ts}"
+
+
+def evaluate_adaptor(name: str, adaptor, questions: list, limit: int, instance_idx: int) -> list:
     results = []
-    # limit -1 表示跑所有
     target_questions = questions if limit == -1 else questions[:limit]
     total = len(target_questions)
 
     for i, q in enumerate(target_questions):
+        run_id = _make_run_id("accurate_retrieval", instance_idx, name, i)
         logger.info(f"[{name}] Running Q{i+1}/{total}: {q}")
         try:
-            res: AdaptorResult = adaptor.run(q)
+            with bind_trace(
+                run_id=run_id,
+                task_name="accurate_retrieval",
+                instance_idx=instance_idx,
+                question_idx=i,
+                adaptor=name,
+            ):
+                res: AdaptorResult = adaptor.run(q)
+
+            logger.info(
+                "[%s] Q%d done | steps=%d | tokens=%d | replan=%d",
+                name,
+                i + 1,
+                res.steps_taken,
+                res.token_consumption,
+                res.replan_count,
+            )
             results.append(
                 {
+                    "run_id": run_id,
+                    "question_idx": i,
                     "question": q,
                     "answer": res.answer,
+                    "answer_length": len(res.answer or ""),
                     "steps": res.steps_taken,
                     "tokens": res.token_consumption,
                     "replan": res.replan_count,
@@ -39,7 +65,7 @@ def evaluate_adaptor(name: str, adaptor, questions: list, limit: int) -> list:
             )
         except Exception as e:
             logger.error(f"[{name}] Failed on Q{i+1}: {e}")
-            results.append({"question": q, "error": str(e)})
+            results.append({"run_id": run_id, "question_idx": i, "question": q, "error": str(e)})
     return results
 
 
@@ -61,7 +87,6 @@ def evaluate_one_instance(
 
     questions = list(data["questions"])
 
-    # Load RAPTOR tree
     tree_path = Path(tree_dir) / f"raptor_acc_ret_{instance_idx}.pkl"
     if not tree_path.exists():
         logger.error(f"RAPTOR tree not found: {tree_path} (run ingest first)")
@@ -80,15 +105,19 @@ def evaluate_one_instance(
     results = {}
 
     if "all" in adaptors_to_run or "R1" in adaptors_to_run:
-        results["R1"] = evaluate_adaptor("R1", SingleTurnAdaptor(llm, memory), questions, limit)
+        llm.reset_stats()
+        results["R1"] = evaluate_adaptor("R1", SingleTurnAdaptor(llm, memory), questions, limit, instance_idx)
     if "all" in adaptors_to_run or "R2" in adaptors_to_run:
-        results["R2"] = evaluate_adaptor("R2", IterativeAdaptor(llm, memory), questions, limit)
+        llm.reset_stats()
+        results["R2"] = evaluate_adaptor("R2", IterativeAdaptor(llm, memory), questions, limit, instance_idx)
     if "all" in adaptors_to_run or "R3" in adaptors_to_run:
-        results["R3"] = evaluate_adaptor("R3", PlanAndActAdaptor(llm, memory), questions, limit)
+        llm.reset_stats()
+        results["R3"] = evaluate_adaptor("R3", PlanAndActAdaptor(llm, memory), questions, limit, instance_idx)
 
     final_report = {
         "dataset": "Accurate_Retrieval",
         "instance_idx": instance_idx,
+        "event_file": str(get_event_file_path() or ""),
         "results": results,
     }
 
