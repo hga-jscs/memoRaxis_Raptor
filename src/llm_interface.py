@@ -7,6 +7,7 @@
 import json
 import re
 from abc import ABC, abstractmethod
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 try:
@@ -14,7 +15,8 @@ try:
 except ImportError:
     OpenAI = None
 
-from .logger import get_logger
+from .logger import get_logger, log_event
+from .token_utils import estimate_messages_tokens, estimate_text_tokens
 
 
 class BaseLLMClient(ABC):
@@ -77,35 +79,117 @@ class OpenAIClient(BaseLLMClient):
         """重置统计"""
         self._total_tokens = 0
 
-    def generate(self, prompt: str, **kwargs) -> str:
+    def generate(
+        self,
+        prompt: str,
+        *,
+        stage: str = "unknown",
+        token_bucket: str = "unknown",
+        query: Optional[str] = None,
+        top_k: Optional[int] = None,
+        **kwargs,
+    ) -> str:
         """调用 OpenAI 生成文本"""
         self._logger.debug("OpenAI generate 调用")
+        start = datetime.now(timezone.utc)
+
+        messages = [{"role": "user", "content": prompt}]
+        model = self._model
+        temperature = kwargs.get("temperature", self._temperature)
+        max_tokens = kwargs.get("max_tokens", self._max_tokens)
+
+        prompt_tokens = None
+        completion_tokens = None
+        total_tokens = None
+        estimated_tokens = None
+        token_source = "api_usage"
+
         try:
             response = self._client.chat.completions.create(
-                model=self._model,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=kwargs.get("temperature", self._temperature),
-                max_tokens=kwargs.get("max_tokens", self._max_tokens),
+                model=model,
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
             )
-            
-            content = response.choices[0].message.content
-            
-            if response.usage:
-                self._total_tokens += response.usage.total_tokens
-                
+
+            content = response.choices[0].message.content or ""
+            usage = getattr(response, "usage", None)
+            if usage is not None:
+                prompt_tokens = getattr(usage, "prompt_tokens", None)
+                completion_tokens = getattr(usage, "completion_tokens", None)
+                total_tokens = getattr(usage, "total_tokens", None)
+
+            if total_tokens is None:
+                token_source = "tokenizer_estimate"
+                prompt_tokens = estimate_messages_tokens(messages, model)
+                completion_tokens = estimate_text_tokens(content, model)
+                estimated_tokens = int(prompt_tokens) + int(completion_tokens)
+                total_tokens = estimated_tokens
+
+            self._total_tokens += int(total_tokens or 0)
+
+            end = datetime.now(timezone.utc)
+            latency_ms = (end - start).total_seconds() * 1000
+            log_event(
+                "model_call",
+                stage=stage,
+                token_bucket=token_bucket,
+                model=model,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                total_tokens=total_tokens,
+                estimated_tokens=estimated_tokens,
+                token_source=token_source,
+                start_time=start.isoformat(),
+                end_time=end.isoformat(),
+                latency_ms=latency_ms,
+                query=query,
+                top_k=top_k,
+                success=True,
+            )
+
             return content
         except Exception as e:
+            end = datetime.now(timezone.utc)
+            latency_ms = (end - start).total_seconds() * 1000
+            log_event(
+                "model_call",
+                stage=stage,
+                token_bucket=token_bucket,
+                model=model,
+                start_time=start.isoformat(),
+                end_time=end.isoformat(),
+                latency_ms=latency_ms,
+                query=query,
+                top_k=top_k,
+                success=False,
+                error_type=type(e).__name__,
+                error_message=str(e),
+            )
             self._logger.error("OpenAI 调用失败: %s", e)
             raise
 
-    def generate_json(self, prompt: str, **kwargs) -> Dict[str, Any]:
+    def generate_json(
+        self,
+        prompt: str,
+        *,
+        stage: str = "unknown",
+        token_bucket: str = "unknown",
+        **kwargs,
+    ) -> Dict[str, Any]:
         """调用 OpenAI 生成 JSON"""
         self._logger.debug("OpenAI generate_json 调用")
         # 强制添加 JSON 指令
         json_prompt = prompt + "\n\n请确保输出为纯 JSON 格式，不要包含 Markdown 代码块标记。"
-        
-        content = self.generate(json_prompt, temperature=0.1, **kwargs) # 低温以保证结构稳定
-        
+
+        content = self.generate(
+            json_prompt,
+            temperature=0.1,
+            stage=stage,
+            token_bucket=token_bucket,
+            **kwargs,
+        )  # 低温以保证结构稳定
+
         return self._parse_json(content)
 
     def _parse_json(self, content: str) -> Dict[str, Any]:
@@ -153,12 +237,39 @@ class MockLLMClient(BaseLLMClient):
         self._call_count = 0
         self._total_tokens = 0
 
-    def generate(self, prompt: str, **kwargs) -> str:
+    def generate(
+        self,
+        prompt: str,
+        *,
+        stage: str = "unknown",
+        token_bucket: str = "unknown",
+        query: Optional[str] = None,
+        top_k: Optional[int] = None,
+        **kwargs,
+    ) -> str:
         """模拟生成文本"""
         self._call_count += 1
         # 模拟 Token 消耗：输入 + 输出
-        self._total_tokens += len(prompt.split()) + 50
+        prompt_tokens = len(prompt.split())
+        completion_tokens = 50
+        total_tokens = prompt_tokens + completion_tokens
+        self._total_tokens += total_tokens
         self._logger.debug("MockLLM generate 调用 #%d", self._call_count)
+
+        log_event(
+            "model_call",
+            stage=stage,
+            token_bucket=token_bucket,
+            model="mock-llm",
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            total_tokens=total_tokens,
+            estimated_tokens=total_tokens,
+            token_source="mock_estimate",
+            query=query,
+            top_k=top_k,
+            success=True,
+        )
 
         # 根据 prompt 内容返回不同的模拟响应
         if "任务:" in prompt and "记忆上下文:" in prompt:
@@ -167,11 +278,34 @@ class MockLLMClient(BaseLLMClient):
         else:
             return "这是模拟的 LLM 响应。"
 
-    def generate_json(self, prompt: str, **kwargs) -> Dict[str, Any]:
+    def generate_json(
+        self,
+        prompt: str,
+        *,
+        stage: str = "unknown",
+        token_bucket: str = "unknown",
+        **kwargs,
+    ) -> Dict[str, Any]:
         """模拟生成 JSON 响应"""
         self._call_count += 1
-        self._total_tokens += len(prompt.split()) + 30
+        prompt_tokens = len(prompt.split())
+        completion_tokens = 30
+        total_tokens = prompt_tokens + completion_tokens
+        self._total_tokens += total_tokens
         self._logger.debug("MockLLM generate_json 调用 #%d", self._call_count)
+
+        log_event(
+            "model_call",
+            stage=stage,
+            token_bucket=token_bucket,
+            model="mock-llm",
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            total_tokens=total_tokens,
+            estimated_tokens=total_tokens,
+            token_source="mock_estimate",
+            success=True,
+        )
 
         # 根据 prompt 内容返回不同的模拟 JSON
         if "判断: 信息是否足够回答任务" in prompt:
