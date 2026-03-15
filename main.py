@@ -1,8 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""驱动脚本
+"""驱动脚本。
 
-演示三种推理范式适配器的使用。
+该脚本用于演示三种推理范式适配器（R1/R2/R3）的完整调用链：
+1) 初始化日志、配置、记忆系统与 LLM 客户端；
+2) 在同一个测试任务上分别运行三个适配器；
+3) 输出回答与关键运行指标，便于快速对比行为差异。
+
+为了便于调试，脚本会在控制台输出结构化分段信息。
 """
 
 import sys
@@ -19,7 +24,12 @@ from src.simple_memory import SimpleRAGMemory
 
 
 def print_result(adaptor_name: str, result):
-    """打印适配器执行结果"""
+    """打印单个适配器执行结果。
+
+    Args:
+        adaptor_name: 适配器展示名称。
+        result: 适配器运行结果对象（包含答案、步骤数、token 等指标）。
+    """
     print(f"\n{'='*60}")
     print(f"适配器: {adaptor_name}")
     print(f"{'='*60}")
@@ -33,7 +43,13 @@ def print_result(adaptor_name: str, result):
 
 
 def main():
-    """主函数"""
+    """程序主入口。
+
+    流程说明：
+    - 优先初始化日志，确保后续异常可追踪；
+    - 初始化记忆系统与 LLM 客户端（失败时降级到 Mock）；
+    - 串行执行 R1/R2/R3，输出可视化分段结果。
+    """
     # 初始化日志
     logger = get_logger()
     logger.info("程序启动")
@@ -72,6 +88,7 @@ def main():
     print("\n" + "="*60)
     print("Agent 推理范式适配器演示")
     print("="*60)
+    print("[DEBUG] 已完成组件初始化，开始运行适配器..." )
     print(f"测试任务: {test_task}")
 
     # R1: SingleTurnAdaptor
@@ -91,7 +108,7 @@ def main():
     # R3: PlanAndActAdaptor
     logger.info("开始测试 PlanAndActAdaptor")
     llm.reset_stats()
-    r3 = PlanAndActAdaptor(llm_client=llm, memory_system=memory, max_replan=2)
+    r3 = PlanAndActAdaptor(llm_client=llm, memory_system=memory, max_additions=2)
     result3 = r3.run(test_task)
     print_result("R3 PlanAndActAdaptor (先规划再执行)", result3)
 
