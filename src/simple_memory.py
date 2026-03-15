@@ -143,8 +143,18 @@ class SimpleRAGMemory(BaseMemorySystem):
         conn.close()
         self._logger.debug("添加记忆: %s... (ID: %s)", data[:30], record_id)
 
-    def retrieve(self, query: str, top_k: int = 5) -> List[Evidence]:
-        """实现 BaseMemorySystem 的 retrieve 接口"""
+    def retrieve(
+        self,
+        query: str,
+        top_k: int = 5,
+        max_tokens: int = 3500,
+        stage: str = "infer.retrieve",
+    ) -> List[Evidence]:
+        """实现 BaseMemorySystem 的 retrieve 接口。
+
+        参数 max_tokens 和 stage 主要用于与其他记忆实现保持统一接口，
+        当前 PostgreSQL 检索逻辑不直接使用 token 预算，但会记录调试信息。
+        """
         query_vector = self._get_embedding(query)
         
         conn = psycopg2.connect(self._db_url)
@@ -175,7 +185,7 @@ class SimpleRAGMemory(BaseMemorySystem):
             
             evidence_list.append(Evidence(content=content, metadata=metadata))
             
-        self._logger.debug("检索完成: query='%s', 结果数=%d", query[:50], len(evidence_list))
+        self._logger.debug("检索完成: query='%s', 结果数=%d, max_tokens=%d, stage=%s", query[:50], len(evidence_list), max_tokens, stage)
         return evidence_list
 
     def reset(self) -> None:

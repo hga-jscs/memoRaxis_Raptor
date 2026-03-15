@@ -26,6 +26,7 @@ from __future__ import annotations
 import argparse
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 config_path = Path("config/config.yaml")
@@ -41,26 +42,39 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 
 
 def run_cmd(cmd: List[str]) -> None:
+    """执行子命令并输出可视化调试信息。"""
     print("\n" + "=" * 100)
     print("RUN:", " ".join(cmd))
     print("=" * 100)
+
+    start = time.perf_counter()
     result = subprocess.run(cmd, cwd=PROJECT_ROOT)
-    if result.returncode != 0:
+    elapsed = time.perf_counter() - start
+
+    if result.returncode == 0:
+        print(f"[DEBUG] 命令执行成功，耗时 {elapsed:.2f}s")
+    else:
+        print(f"[DEBUG] 命令执行失败，返回码={result.returncode}，耗时 {elapsed:.2f}s")
         raise SystemExit(result.returncode)
 
 
 def ensure_exists(path: Path, what: str) -> None:
+    """确保关键输入文件存在，不存在时立即失败。"""
     if not path.exists():
         raise FileNotFoundError(f"{what} 不存在: {path}")
 
 
 def parse_indices(spec: str) -> List[int]:
-    """
-    支持：
-    0
-    0-3
-    0,2,5
-    0-2,5,7-8
+    """将索引表达式解析为有序、去重后的整数列表。
+
+    支持示例：
+    - 0
+    - 0-3
+    - 0,2,5
+    - 0-2,5,7-8
+
+    Raises:
+        ValueError: 当范围写反（如 8-3）时抛出。
     """
     spec = spec.strip()
     if not spec:
@@ -74,6 +88,8 @@ def parse_indices(spec: str) -> List[int]:
             left, right = part.split("-", 1)
             start = int(left.strip())
             end = int(right.strip())
+            if end < start:
+                raise ValueError(f"非法范围: {part}（结束值小于起始值）")
             for x in range(start, end + 1):
                 result.add(x)
         else:
@@ -398,12 +414,17 @@ def main() -> None:
 
     args = parser.parse_args()
 
+    # 兼容 --adaptors all 写法：自动展开为 R1/R2/R3。
+    if "all" in args.adaptors:
+        args.adaptors = ["R1", "R2", "R3"]
+
     python_exe = sys.executable
 
     config_path = PROJECT_ROOT / "config" / "config.yaml"
     ensure_exists(config_path, "配置文件")
 
     if not args.skip_preprocess:
+        print("[DEBUG] 开始预处理 preview 数据...")
         preprocess_preview_samples(python_exe)
 
     if "acc" in args.tasks:

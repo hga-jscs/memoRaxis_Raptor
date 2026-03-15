@@ -7,7 +7,7 @@
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from .logger import get_logger
 
@@ -16,7 +16,8 @@ class Evidence(BaseModel):
     """检索到的证据"""
 
     content: str
-    metadata: Dict[str, Any] = {}
+    # 使用 default_factory 避免可变默认值在不同 Evidence 实例间共享。
+    metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
 class BaseMemorySystem(ABC):
@@ -33,12 +34,20 @@ class BaseMemorySystem(ABC):
         pass
 
     @abstractmethod
-    def retrieve(self, query: str, top_k: int = 5) -> List[Evidence]:
+    def retrieve(
+        self,
+        query: str,
+        top_k: int = 5,
+        max_tokens: int = 3500,
+        stage: str = "infer.retrieve",
+    ) -> List[Evidence]:
         """检索记忆
 
         Args:
             query: 查询字符串
             top_k: 返回结果数量
+            max_tokens: 预留给检索阶段的 token 预算（部分实现可忽略）
+            stage: 调用阶段标识（用于日志或埋点）
 
         Returns:
             检索到的证据列表
@@ -105,9 +114,26 @@ class MockMemory(BaseMemorySystem):
         self._memories.append({"content": data, "metadata": metadata})
         self._logger.debug("添加记忆: %s", data[:50])
 
-    def retrieve(self, query: str, top_k: int = 5) -> List[Evidence]:
-        """检索记忆（简单关键词匹配）"""
-        self._logger.debug("检索查询: %s, top_k=%d", query, top_k)
+    def retrieve(
+        self,
+        query: str,
+        top_k: int = 5,
+        max_tokens: int = 3500,
+        stage: str = "infer.retrieve",
+    ) -> List[Evidence]:
+        """检索记忆（简单关键词匹配）。
+
+        说明：
+        - max_tokens / stage 参数用于对齐真实内存实现接口，Mock 检索逻辑本身不使用。
+        - 保留这些参数可保证 Adaptor 在 Mock/真实实现间无缝切换。
+        """
+        self._logger.debug(
+            "检索查询: %s, top_k=%d, max_tokens=%d, stage=%s",
+            query,
+            top_k,
+            max_tokens,
+            stage,
+        )
 
         # 简单的关键词匹配评分
         scored_memories = []
