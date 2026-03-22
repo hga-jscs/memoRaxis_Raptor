@@ -19,6 +19,7 @@ python run_all_tasks.py
 python run_all_tasks.py --tasks acc conflict
 python run_all_tasks.py --adaptors R1 R2
 python run_all_tasks.py --skip_ingest
+python run_all_tasks.py --tasks acc --acc_instance_idx 0 --acc_target_chunks 16 --skip_infer --skip_eval
 """
 
 from __future__ import annotations
@@ -28,6 +29,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from typing import List
 
 config_path = Path("config/config.yaml")
 if not config_path.exists():
@@ -35,7 +37,6 @@ if not config_path.exists():
         "缺少 config/config.yaml。请先由 config/config.example.yaml 复制生成，"
         "再填写 API Key 和 Base URL。"
     )
-from typing import List
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent
@@ -114,6 +115,7 @@ def ingest_acc(
     chunk_size: int,
     save_dir: str,
     tb_num_layers: int,
+    target_chunks: int | None = None,
 ) -> None:
     cmd = [
         python_exe,
@@ -127,6 +129,8 @@ def ingest_acc(
         "--tb_num_layers",
         str(tb_num_layers),
     ]
+    if target_chunks is not None:
+        cmd.extend(["--target_chunks", str(target_chunks)])
     run_cmd(cmd)
 
 
@@ -187,6 +191,7 @@ def ingest_conflict(
     min_chars: int,
     save_dir: str,
     tb_num_layers: int,
+    target_chunks: int | None = None,
 ) -> None:
     cmd = [
         python_exe,
@@ -200,6 +205,8 @@ def ingest_conflict(
         "--tb_num_layers",
         str(tb_num_layers),
     ]
+    if target_chunks is not None:
+        cmd.extend(["--target_chunks", str(target_chunks)])
     run_cmd(cmd)
 
 
@@ -246,6 +253,7 @@ def ingest_long(
     overlap: int,
     save_dir: str,
     tb_num_layers: int,
+    target_chunks: int | None = None,
 ) -> None:
     cmd = [
         python_exe,
@@ -261,6 +269,8 @@ def ingest_long(
         "--tb_num_layers",
         str(tb_num_layers),
     ]
+    if target_chunks is not None:
+        cmd.extend(["--target_chunks", str(target_chunks)])
     run_cmd(cmd)
 
 
@@ -317,6 +327,7 @@ def ingest_ttl(
     instance_idx: str,
     save_dir: str,
     tb_num_layers: int,
+    target_chunks: int | None = None,
 ) -> None:
     cmd = [
         python_exe,
@@ -328,6 +339,8 @@ def ingest_ttl(
         "--tb_num_layers",
         str(tb_num_layers),
     ]
+    if target_chunks is not None:
+        cmd.extend(["--target_chunks", str(target_chunks)])
     run_cmd(cmd)
 
 
@@ -394,18 +407,42 @@ def main() -> None:
     parser.add_argument("--acc_instance_idx", type=str, default="0")
     parser.add_argument("--acc_limit", type=int, default=5)
     parser.add_argument("--acc_chunk_size", type=int, default=850)
+    parser.add_argument(
+        "--acc_target_chunks",
+        type=int,
+        default=None,
+        help="Force exact chunk count for Accurate_Retrieval ingest-cost sweeps",
+    )
 
     parser.add_argument("--conflict_instance_idx", type=str, default="0-7")
     parser.add_argument("--conflict_limit", type=int, default=-1)
     parser.add_argument("--conflict_min_chars", type=int, default=800)
+    parser.add_argument(
+        "--conflict_target_chunks",
+        type=int,
+        default=None,
+        help="Force exact chunk count for Conflict_Resolution ingest-cost sweeps",
+    )
 
     parser.add_argument("--long_instance_idx", type=str, default="0-39")
     parser.add_argument("--long_limit", type=int, default=-1)
     parser.add_argument("--long_chunk_size", type=int, default=1200)
     parser.add_argument("--long_overlap", type=int, default=100)
+    parser.add_argument(
+        "--long_target_chunks",
+        type=int,
+        default=None,
+        help="Force exact chunk count for Long_Range_Understanding ingest-cost sweeps",
+    )
 
     parser.add_argument("--ttl_instance_idx", type=str, default="0-5")
     parser.add_argument("--ttl_limit", type=int, default=-1)
+    parser.add_argument(
+        "--ttl_target_chunks",
+        type=int,
+        default=None,
+        help="Force exact chunk count for Test_Time_Learning ingest-cost sweeps",
+    )
 
     parser.add_argument("--skip_preprocess", action="store_true")
     parser.add_argument("--skip_ingest", action="store_true")
@@ -435,6 +472,7 @@ def main() -> None:
                 chunk_size=args.acc_chunk_size,
                 save_dir=args.tree_dir,
                 tb_num_layers=args.tb_num_layers,
+                target_chunks=args.acc_target_chunks,
             )
         if not args.skip_infer:
             infer_acc(
@@ -460,6 +498,7 @@ def main() -> None:
                 min_chars=args.conflict_min_chars,
                 save_dir=args.tree_dir,
                 tb_num_layers=args.tb_num_layers,
+                target_chunks=args.conflict_target_chunks,
             )
         if not args.skip_infer:
             infer_conflict(
@@ -481,6 +520,7 @@ def main() -> None:
                 overlap=args.long_overlap,
                 save_dir=args.tree_dir,
                 tb_num_layers=args.tb_num_layers,
+                target_chunks=args.long_target_chunks,
             )
         if not args.skip_infer:
             infer_long(
@@ -505,6 +545,7 @@ def main() -> None:
                 instance_idx=args.ttl_instance_idx,
                 save_dir=args.tree_dir,
                 tb_num_layers=args.tb_num_layers,
+                target_chunks=args.ttl_target_chunks,
             )
         if not args.skip_infer:
             infer_ttl(

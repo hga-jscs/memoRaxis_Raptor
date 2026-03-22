@@ -393,6 +393,21 @@ MemoryAgentBench/preview_samples/
 
 两种方式并不冲突。通常推荐先用一键运行确认大链路可用，再用 CLI 分步方式做深入实验。
 
+### 固定 chunk 数成本实验
+
+从本版本开始，四个 ingest 脚本统一支持 `--target_chunks`。<br>
+该参数用于**固定 chunk 数的 ingest 成本实验**，适合研究：
+
+- chunk 数变化对 build time 的影响
+- chunk 数变化对 token 消耗的影响
+- 不同任务在相同 chunk 数下的 ingest 开销差异
+
+需要注意的是，`--target_chunks` 的设计目标是**实验可控性**，不是官方评测口径下的默认分块方式。因此：
+
+- 当 `--target_chunks` 被设置时，会优先进入“固定 chunk 数实验模式”
+- 这时原有的 `chunk_size / min_chars / auto chunking` 将被覆盖
+- 该模式更适合成本分析，不建议直接拿来做正式准确率结论
+
 ---
 
 ## 8. 一键运行：`run_all_tasks.py`
@@ -538,6 +553,7 @@ RAPTOR tree 的层数参数。默认值：
 - `--acc_instance_idx`：默认 `0`
 - `--acc_limit`：默认 `5`
 - `--acc_chunk_size`：默认 `850`
+- `--acc_target_chunks`：默认 `None`，用于强制 Accurate_Retrieval ingest 生成固定数量的 chunk
 
 ---
 
@@ -546,6 +562,7 @@ RAPTOR tree 的层数参数。默认值：
 - `--conflict_instance_idx`：默认 `0-7`
 - `--conflict_limit`：默认 `-1`
 - `--conflict_min_chars`：默认 `800`
+- `--conflict_target_chunks`：默认 `None`，用于强制 Conflict_Resolution ingest 生成固定数量的 chunk
 
 ---
 
@@ -555,6 +572,7 @@ RAPTOR tree 的层数参数。默认值：
 - `--long_limit`：默认 `-1`
 - `--long_chunk_size`：默认 `1200`
 - `--long_overlap`：默认 `100`
+- `--long_target_chunks`：默认 `None`，用于强制 Long_Range_Understanding ingest 生成固定数量的 chunk
 
 ---
 
@@ -562,6 +580,10 @@ RAPTOR tree 的层数参数。默认值：
 
 - `--ttl_instance_idx`：默认 `0-5`
 - `--ttl_limit`：默认 `-1`
+- `--ttl_target_chunks`：默认 `None`，用于强制 Test_Time_Learning ingest 生成固定数量的 chunk
+
+当 `*_target_chunks` 被设置时，对应任务会优先使用固定 chunk 数实验模式；<br>
+原有 `chunk_size / min_chars / auto strategy` 仅作为未设置 `target_chunks` 时的默认逻辑。
 
 ---
 
@@ -587,10 +609,22 @@ python scripts/Raptor_MAB/data/convert_parquet_to_json.py
 python scripts/Raptor_MAB/ingest/ingest_accurate_retrieval.py --instance_idx 0 --chunk_size 850 --save_dir out/raptor_trees --tb_num_layers 3
 ```
 
+固定 chunk 数实验示例：
+
+```bash
+python scripts/Raptor_MAB/ingest/ingest_accurate_retrieval.py --instance_idx 0 --target_chunks 16 --save_dir out/chunk_sweep/acc_k16 --tb_num_layers 3
+```
+
 #### Conflict Resolution
 
 ```bash
 python scripts/Raptor_MAB/ingest/ingest_conflict_resolution.py --instance_idx 0-7 --min_chars 800 --save_dir out/raptor_trees --tb_num_layers 3
+```
+
+固定 chunk 数实验示例：
+
+```bash
+python scripts/Raptor_MAB/ingest/ingest_conflict_resolution.py --instance_idx 0 --target_chunks 16 --save_dir out/chunk_sweep/conflict_k16 --tb_num_layers 3
 ```
 
 #### Long Range Understanding
@@ -599,11 +633,76 @@ python scripts/Raptor_MAB/ingest/ingest_conflict_resolution.py --instance_idx 0-
 python scripts/Raptor_MAB/ingest/ingest_long_range.py --instance_idx 0-39 --chunk_size 1200 --overlap 100 --save_dir out/raptor_trees --tb_num_layers 3
 ```
 
+固定 chunk 数实验示例：
+
+```bash
+python scripts/Raptor_MAB/ingest/ingest_long_range.py --instance_idx 0 --target_chunks 16 --save_dir out/chunk_sweep/long_k16 --tb_num_layers 3
+```
+
 #### Test Time Learning
 
 ```bash
 python scripts/Raptor_MAB/ingest/ingest_test_time.py --instance_idx 0-5 --save_dir out/raptor_trees --tb_num_layers 3
 ```
+
+固定 chunk 数实验示例：
+
+```bash
+python scripts/Raptor_MAB/ingest/ingest_test_time.py --instance_idx 0 --target_chunks 16 --save_dir out/chunk_sweep/ttl_k16 --tb_num_layers 3
+```
+
+## 固定 chunk 数 sweep 示例
+
+若目标是只研究 ingest 开销，而不运行 infer / evaluate，可直接使用以下命令。
+
+### 一键脚本方式
+
+只跑 Accurate_Retrieval，固定 16 个 chunk，仅做 ingest：
+
+```bash
+python run_all_tasks.py --tasks acc --acc_instance_idx 0 --acc_target_chunks 16 --skip_infer --skip_eval
+```
+
+四个任务都跑 `instance 0`，并分别固定为 16 个 chunk，仅做 ingest：
+
+```bash
+python run_all_tasks.py --acc_instance_idx 0 --conflict_instance_idx 0 --long_instance_idx 0 --ttl_instance_idx 0 --acc_target_chunks 16 --conflict_target_chunks 16 --long_target_chunks 16 --ttl_target_chunks 16 --skip_infer --skip_eval
+```
+
+### 逐条命令方式
+
+```bash
+python scripts/Raptor_MAB/ingest/ingest_accurate_retrieval.py --instance_idx 0 --target_chunks 1 --save_dir out/chunk_sweep/acc_k1 --tb_num_layers 3
+python scripts/Raptor_MAB/ingest/ingest_accurate_retrieval.py --instance_idx 0 --target_chunks 2 --save_dir out/chunk_sweep/acc_k2 --tb_num_layers 3
+python scripts/Raptor_MAB/ingest/ingest_accurate_retrieval.py --instance_idx 0 --target_chunks 4 --save_dir out/chunk_sweep/acc_k4 --tb_num_layers 3
+python scripts/Raptor_MAB/ingest/ingest_accurate_retrieval.py --instance_idx 0 --target_chunks 8 --save_dir out/chunk_sweep/acc_k8 --tb_num_layers 3
+python scripts/Raptor_MAB/ingest/ingest_accurate_retrieval.py --instance_idx 0 --target_chunks 16 --save_dir out/chunk_sweep/acc_k16 --tb_num_layers 3
+python scripts/Raptor_MAB/ingest/ingest_accurate_retrieval.py --instance_idx 0 --target_chunks 32 --save_dir out/chunk_sweep/acc_k32 --tb_num_layers 3
+python scripts/Raptor_MAB/ingest/ingest_accurate_retrieval.py --instance_idx 0 --target_chunks 64 --save_dir out/chunk_sweep/acc_k64 --tb_num_layers 3
+```
+
+对另外三个任务，只需把脚本名与输出目录前缀替换为：
+
+- `ingest_conflict_resolution.py` / `conflict_k*`
+- `ingest_long_range.py` / `long_k*`
+- `ingest_test_time.py` / `ttl_k*`
+
+### 结果提取
+
+每次 ingest 运行后，日志目录会生成 `*.events.jsonl`。<br>
+可以直接执行：
+
+```bash
+python scripts/Raptor_MAB/analyze/report_ingest_sweep.py --pattern "log/*.events.jsonl"
+```
+
+输出文件为：
+
+```text
+out/chunk_sweep_reports/ingest_sweep_report.csv
+```
+
+可直接拿去画图。
 
 ### 10.3 Infer
 
